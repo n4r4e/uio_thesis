@@ -52,62 +52,60 @@ def process_json_file(file_name, embedding_model):
     with open(file_name, 'r') as file:
         for line in file:
             json_object = json.loads(line)
+
+            # Default values
+            question = None
+            gpt_answer = None
+            translated_question = None
+            translated_gpt_answer = None
+            translated_back_gpt_answer = None
+            cosine_sim = None
+            choices = None
+            answer = None
             
             if 'Math' in file_name:
-                question = json_object['question']
-                answer = json_object['answer']
+                question = json_object.get('question', None)
+                answer = json_object.get('answer', None)
 
             elif 'Logic' in file_name:
-                stem = json_object['question']['stem']
-                choices = json_object['question']['choices']
-                answer = json_object['answerKey']
-                # format the choices
-                formatted_choices = ", ".join([f"'{choice['label']}': '{choice['text']}'" for choice in choices])
-                question = f"{stem} Choose the correct answer from the following options: {formatted_choices}"
+                stem = json_object.get('question', {}).get('stem', None)
+                choices = json_object.get('question', {}).get('choices', [])
+                answer = json_object.get('answerKey', None)
+                formatted_choices = ", ".join([f"'{choice['label']}': '{choice['text']}'" for choice in choices]) if choices else None
+                question = f"{stem} Choose the correct answer from the following options: {formatted_choices}" if stem and formatted_choices else None
 
             elif 'Knowledge' in file_name:
-                stem = json_object['stem']
-                choices = json_object['choices']
-                answer = json_object['answer']
-                # format the choices
-                formatted_choices = ", ".join([f"'{label}': '{text}'" for label, text in choices.items()])
-                question = f"{stem} Choose the correct answer from the following options: {formatted_choices}"
-
-            # save the question
-            questions.append(question)
-
-            # save the choices
-            if choices:
-                choices_list.append(choices)
-
-            if answer:
-                answers.append(answer)
+                stem = json_object.get('stem', None)
+                choices = json_object.get('choices', {})
+                answer = json_object.get('answer', None)
+                formatted_choices = ", ".join([f"'{label}': '{text}'" for label, text in choices.items()]) if choices else None
+                question = f"{stem} Choose the correct answer from the following options: {formatted_choices}" if stem and formatted_choices else None
 
             # Ask ChatGPT the question and get the answer
-            gpt_answer = ask_chatgpt(question)
+            if question:
+                gpt_answer = ask_chatgpt(question)
+                translated_question = translate_to_korean(question)
+                translated_gpt_answer = ask_chatgpt(translated_question)
+                translated_back_gpt_answer = translate_to_english(translated_gpt_answer)
+
+                # Generate embeddings for the original and translated back answers
+                embedding1 = embedding_model.encode(gpt_answer).reshape(1, -1)
+                embedding2 = embedding_model.encode(translated_back_gpt_answer).reshape(1, -1)
+
+                # Compute cosine similarity
+                cosine_sim = cosine_similarity(embedding1, embedding2)[0][0]
+
+            # Append data to lists
+            questions.append(question)
             gpt_answers.append(gpt_answer)
-
-            # Translate the question to Korean
-            translated_question = translate_to_korean(question)
             translated_questions.append(translated_question)
-
-            # Ask ChatGPT the translated question and get the answer
-            translated_gpt_answer = ask_chatgpt(translated_question)
             gpt_answers_translated.append(translated_gpt_answer)
-        
-            # Translate the answer back to English
-            translated_back_gpt_answer = translate_to_english(translated_gpt_answer)
             translated_back_to_english.append(translated_back_gpt_answer)
-
-            # Generate embeddings for the original and translated back answers
-            embedding1 = embedding_model.encode(gpt_answer).reshape(1, -1)
-            embedding2 = embedding_model.encode(translated_back_gpt_answer).reshape(1, -1)
-
-            # Compute cosine similarity
-            cosine_sim = cosine_similarity(embedding1, embedding2)[0][0]
             cosine_similarities.append(cosine_sim)
+            choices_list.append(choices if choices else None)
+            answers.append(answer)
 
-    # Create a DataFrame to store the processed data
+    # Create DataFrame
     df = pd.DataFrame({
         'Question': questions,
         'Translated Question (Ko)': translated_questions,
@@ -119,11 +117,10 @@ def process_json_file(file_name, embedding_model):
         'Choices' : choices_list,
     })
 
-    # Get the file name without the extension
+    # Save DataFrame
     file_name_without_extension, _ = os.path.splitext(file_name)
-
-    # Save the DataFrame to a CSV file
     df.to_csv(f'processed_{file_name_without_extension}.csv', index=False)
+
 
 def main():
     # Load pre-trained sentenceBERT model
